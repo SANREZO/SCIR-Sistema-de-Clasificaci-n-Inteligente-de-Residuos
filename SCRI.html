@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCIR · Clasificación inteligente de residuos</title>
+    <script>
+        // Muestra en la página cualquier error de JavaScript, para que nada falle en silencio.
+        (function () {
+            var pending = [];
+            function show(msg) {
+                var list = document.getElementById('jsErrorsList');
+                if (!list) { pending.push(msg); return; }
+                document.getElementById('jsErrors').hidden = false;
+                var row = document.createElement('div');
+                row.textContent = msg;
+                list.appendChild(row);
+            }
+            window.addEventListener('error', function (e) {
+                if (!e.message || /^(chrome|moz|safari)-extension:/.test(e.filename || '')) return;
+                if (e.message === 'Script error.' && !e.filename) return;
+                var where = e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : '';
+                show(e.message + where);
+            });
+            window.addEventListener('unhandledrejection', function (e) {
+                var r = e.reason;
+                show((r && (r.message || r.name)) || String(r));
+            });
+            document.addEventListener('DOMContentLoaded', function () { pending.splice(0).forEach(show); });
+        })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Las fuentes cargan sin bloquear: si Google Fonts tarda, la página se ve igual con fuentes del sistema -->
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap"
+        media="print" onload="this.media='all'">
+    <noscript>
+        <link rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap">
+    </noscript>
+    <style>
+        :root {
+            --bg: #e9edf2;
+            --surface: #ffffff;
+            --line: #e2e7ee;
+            --ink: #19232f;
+            --soft: #616b7a;
+            --accent: #13a3df;
+            --vp: #0e151f;
+            --radius: 16px;
+            --shadow: 0 1px 2px rgba(20, 30, 45, .05), 0 10px 28px rgba(20, 30, 45, .07);
+            --sans: 'IBM Plex Sans', system-ui, sans-serif;
+            --mono: 'IBM Plex Mono', ui-monospace, monospace;
+            --display: 'Space Grotesk', var(--sans);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
+
+        html {
+            -webkit-text-size-adjust: 100%
+        }
+
+        body {
+            font-family: var(--sans);
+            color: var(--ink);
+            background: radial-gradient(1200px 500px at 80% -10%, #f4f7fb 0%, transparent 60%), var(--bg);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 14px clamp(16px, 4vw, 40px);
+            background: var(--surface);
+            border-bottom: 1px solid var(--line);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 11px
+        }
+
+        .brand__mark {
+            display: grid;
+            place-items: center;
+            width: 34px;
+            height: 34px;
+            color: var(--accent);
+            flex: none
+        }
+
+        .brand__txt {
+            display: flex;
+            flex-direction: column;
+            line-height: 1.1
+        }
+
+        .brand__name {
+            font-family: var(--display);
+            font-weight: 700;
+            font-size: 18px;
+            letter-spacing: -.01em
+        }
+
+        .brand__tag {
+            font-size: 11.5px;
+            color: var(--soft)
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 12.5px;
+            color: var(--soft)
+        }
+
+        .status__live {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-family: var(--mono)
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #9aa3af;
+            box-shadow: 0 0 0 3px rgba(154, 163, 175, .18);
+            transition: background .25s, box-shadow .25s
+        }
+
+        .dot.on {
+            background: #2a9d5c;
+            box-shadow: 0 0 0 3px rgba(42, 157, 92, .18)
+        }
+
+        .status__count {
+            font-family: var(--mono)
+        }
+
+        .status__count b {
+            color: var(--ink);
+            font-weight: 600
+        }
+
+        .stage {
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: clamp(16px, 3.4vw, 30px) clamp(16px, 4vw, 40px) 10px;
+            display: grid;
+            grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
+            gap: 22px;
+            align-items: start;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow)
+        }
+
+        .device {
+            padding: clamp(14px, 2.2vw, 20px)
+        }
+
+        .viewport {
+            position: relative;
+            aspect-ratio: 4/3;
+            width: 100%;
+            background: radial-gradient(120% 120% at 50% 0%, #16202d 0%, var(--vp) 70%);
+            border-radius: 14px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, .07);
+        }
+
+        #video {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+            background: var(--vp)
+        }
+
+        #video.mirror {
+            transform: scaleX(-1)
+        }
+
+        #overlay {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: none
+        }
+
+        .viewport.is-running #video,
+        .viewport.is-running #overlay {
+            display: block
+        }
+
+        .vp-grid {
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, .045) 1px, transparent 1px);
+            background-size: 38px 38px;
+            -webkit-mask-image: radial-gradient(110% 110% at 50% 45%, #000 55%, transparent 100%);
+            mask-image: radial-gradient(110% 110% at 50% 45%, #000 55%, transparent 100%);
+            transition: opacity .3s;
+        }
+
+        .viewport.is-running .vp-grid {
+            opacity: .22
+        }
+
+        .vp-vignette {
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(110% 90% at 50% 40%, transparent 55%, rgba(0, 0, 0, .45) 100%);
+            pointer-events: none
+        }
+
+        .vp-corner {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, .28);
+            opacity: .6;
+            z-index: 3
+        }
+
+        .vp-corner.tl {
+            top: 12px;
+            left: 12px;
+            border-right: 0;
+            border-bottom: 0
+        }
+
+        .vp-corner.tr {
+            top: 12px;
+            right: 12px;
+            border-left: 0;
+            border-bottom: 0
+        }
+
+        .vp-corner.bl {
+            bottom: 12px;
+            left: 12px;
+            border-right: 0;
+            border-top: 0
+        }
+
+        .vp-corner.br {
+            bottom: 12px;
+            right: 12px;
+            border-left: 0;
+            border-top: 0
+        }
+
+        .vp-scan {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            height: 2px;
+            z-index: 2;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            box-shadow: 0 0 14px 2px rgba(19, 163, 223, .6);
+            opacity: 0;
+        }
+
+        .viewport.is-running .vp-scan {
+            opacity: .85;
+            animation: scan 2.4s linear infinite
+        }
+
+        @keyframes scan {
+            0% {
+                top: 2%
+            }
+
+            100% {
+                top: 98%
+            }
+        }
+
+        .vp-state {
+            position: absolute;
+            inset: 0;
+            z-index: 4;
+            display: grid;
+            place-items: center;
+            align-content: center;
+            text-align: center;
+            padding: 24px;
+            gap: 14px
+        }
+
+        .viewport.is-running .vp-state {
+            display: none
+        }
+
+        .vp-state__msg {
+            font-family: var(--mono);
+            font-size: 13px;
+            color: rgba(255, 255, 255, .72);
+            max-width: 32ch;
+            line-height: 1.55
+        }
+
+        .vp-state__sub {
+            font-size: 12px;
+            color: rgba(255, 255, 255, .42);
+            max-width: 38ch;
+            line-height: 1.5
+        }
+
+        .vp-ico {
+            width: 40px;
+            height: 40px;
+            color: rgba(255, 255, 255, .6)
+        }
+
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(255, 255, 255, .16);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg)
+            }
+        }
+
+        .btn {
+            appearance: none;
+            cursor: pointer;
+            font-family: var(--sans);
+            font-weight: 600;
+            font-size: 14px;
+            border-radius: 11px;
+            padding: 11px 18px;
+            border: 1px solid transparent;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: transform .12s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease;
+        }
+
+        .btn svg {
+            width: 17px;
+            height: 17px
+        }
+
+        .btn--primary {
+            background: var(--accent);
+            color: #04222e;
+            box-shadow: 0 6px 16px rgba(19, 163, 223, .3)
+        }
+
+        .btn--primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 9px 20px rgba(19, 163, 223, .36)
+        }
+
+        .btn--ghost {
+            background: var(--surface);
+            border-color: var(--line);
+            color: var(--ink)
+        }
+
+        .btn--ghost:hover {
+            border-color: #b9d9ec;
+            transform: translateY(-1px)
+        }
+
+        .btn:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px
+        }
+
+        .readout {
+            margin-top: 12px;
+            background: #f4f6f9;
+            border: 1px solid var(--line);
+            border-radius: 11px;
+            padding: 11px 14px;
+            display: grid;
+            gap: 7px
+        }
+
+        .ro-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px
+        }
+
+        .ro-row span {
+            font-family: var(--mono);
+            font-size: 10.5px;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+            color: var(--soft)
+        }
+
+        .ro-row b {
+            font-family: var(--mono);
+            font-size: 12.5px;
+            font-weight: 500;
+            color: var(--ink)
+        }
+
+        .ro-row b.live {
+            color: var(--accent)
+        }
+
+        .controls {
+            margin-top: 14px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap
+        }
+
+        .controls[hidden] {
+            display: none
+        }
+
+        .reco {
+            margin-top: 16px
+        }
+
+        .reco__label {
+            font-size: 11px;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+            color: var(--soft);
+            margin-bottom: 9px
+        }
+
+        .reco__grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 7px
+        }
+
+        .reco__item {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 99px;
+            padding: 6px 12px;
+            font-size: 12.5px;
+            color: var(--soft)
+        }
+
+        .reco__item b {
+            color: var(--ink);
+            font-weight: 600
+        }
+
+        .reco__sw {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex: none
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px
+        }
+
+        .result {
+            padding: clamp(16px, 2.4vw, 22px)
+        }
+
+        .result__eyebrow {
+            font-family: var(--mono);
+            font-size: 10.5px;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: var(--soft)
+        }
+
+        .result__binline {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            margin-top: 8px
+        }
+
+        .result__dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #cbd3dc;
+            flex: none;
+            transition: background .2s ease, box-shadow .2s ease
+        }
+
+        .result__bin {
+            font-family: var(--display);
+            font-weight: 700;
+            font-size: clamp(21px, 4vw, 27px);
+            letter-spacing: -.01em;
+            line-height: 1.1
+        }
+
+        .result__reason {
+            color: var(--soft);
+            font-size: 14px;
+            margin-top: 9px;
+            min-height: 1.4em
+        }
+
+        .result__conf {
+            margin-top: 16px
+        }
+
+        .result__conf[hidden] {
+            display: none
+        }
+
+        .result__confhead {
+            display: flex;
+            align-items: center;
+            justify-content: space-between
+        }
+
+        .result__confhead span {
+            font-size: 12px;
+            color: var(--soft)
+        }
+
+        .result__confhead b {
+            font-family: var(--mono);
+            font-size: 13px;
+            color: var(--ink);
+            font-weight: 500
+        }
+
+        .result__bar {
+            height: 8px;
+            background: #eef1f5;
+            border-radius: 99px;
+            overflow: hidden;
+            margin-top: 7px
+        }
+
+        .result__bar span {
+            display: block;
+            height: 100%;
+            width: 0;
+            border-radius: 99px;
+            background: linear-gradient(90deg, #13a3df, #3fc1ef);
+            transition: width .4s cubic-bezier(.2, .7, .2, 1)
+        }
+
+        .bins {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px
+        }
+
+        .bin {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 13px 14px;
+            display: flex;
+            gap: 11px;
+            align-items: flex-start;
+            transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease
+        }
+
+        .bin__swatch {
+            width: 34px;
+            height: 34px;
+            border-radius: 9px;
+            flex: none;
+            transition: transform .18s ease
+        }
+
+        .bin__name {
+            font-family: var(--display);
+            font-weight: 600;
+            font-size: 14px
+        }
+
+        .bin__rule {
+            font-size: 11.5px;
+            color: var(--soft);
+            margin-top: 3px;
+            line-height: 1.35
+        }
+
+        [data-bin="BLANCO"] .bin__swatch {
+            background: #fff;
+            border: 1px solid #d2d8e0
+        }
+
+        [data-bin="NEGRO"] .bin__swatch {
+            background: #2a2d33
+        }
+
+        [data-bin="VERDE"] .bin__swatch {
+            background: #2a9d5c
+        }
+
+        [data-bin="ROJO"] .bin__swatch {
+            background: #df3b34
+        }
+
+        .bin.is-active {
+            transform: translateY(-2px)
+        }
+
+        .bin.is-active .bin__swatch {
+            transform: scale(1.06)
+        }
+
+        .bin.is-active[data-bin="BLANCO"] {
+            border-color: #b9c2cc;
+            box-shadow: 0 8px 20px rgba(40, 50, 65, .12)
+        }
+
+        .bin.is-active[data-bin="NEGRO"] {
+            border-color: #2a2d33;
+            box-shadow: 0 0 0 3px rgba(42, 45, 51, .15)
+        }
+
+        .bin.is-active[data-bin="VERDE"] {
+            border-color: #2a9d5c;
+            box-shadow: 0 0 0 3px rgba(42, 157, 92, .2)
+        }
+
+        .bin.is-active[data-bin="ROJO"] {
+            border-color: #df3b34;
+            box-shadow: 0 0 0 3px rgba(223, 59, 52, .2)
+        }
+
+        .foot {
+            max-width: 1180px;
+            margin: 18px auto 0;
+            padding: 16px clamp(16px, 4vw, 40px) 34px;
+            border-top: 1px solid var(--line);
+            color: var(--soft);
+            font-size: 12px;
+            line-height: 1.55
+        }
+
+        .foot b {
+            color: var(--ink);
+            font-weight: 600
+        }
+
+        [hidden] {
+            display: none !important
+        }
+
+        .brand__ver {
+            font-family: var(--mono);
+            font-size: 10.5px;
+            font-weight: 500;
+            letter-spacing: 0;
+            color: var(--soft);
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            padding: 1px 6px;
+            margin-left: 4px;
+            vertical-align: 3px
+        }
+
+        .jserr {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px clamp(16px, 4vw, 40px);
+            background: #fdecea;
+            color: #8a1c14;
+            border-bottom: 1px solid #f3c5c0;
+            font-size: 13px
+        }
+
+        .jserr__list {
+            flex: 1;
+            min-width: 0;
+            display: grid;
+            gap: 3px;
+            font-family: var(--mono);
+            font-size: 12px;
+            overflow-wrap: anywhere
+        }
+
+        .jserr__x {
+            appearance: none;
+            border: 0;
+            background: none;
+            color: inherit;
+            font-size: 20px;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0 4px
+        }
+
+        .vp-ai {
+            position: absolute;
+            left: 12px;
+            right: 12px;
+            bottom: 12px;
+            z-index: 5;
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            padding: 10px 12px;
+            background: rgba(10, 16, 24, .86);
+            color: #e8eef5;
+            border: 1px solid rgba(255, 255, 255, .12);
+            border-radius: 12px;
+            font-family: var(--mono);
+            font-size: 12px;
+            line-height: 1.45
+        }
+
+        .vp-ai.is-error {
+            border-color: rgba(223, 59, 52, .65)
+        }
+
+        .vp-ai .spinner {
+            width: 18px;
+            height: 18px;
+            border-width: 2px;
+            flex: none
+        }
+
+        .vp-ai__txt {
+            flex: 1;
+            min-width: 0;
+            display: grid;
+            gap: 3px;
+            overflow-wrap: anywhere
+        }
+
+        .vp-ai__txt small {
+            color: rgba(232, 238, 245, .6);
+            font-size: 11px
+        }
+
+        .btn--sm {
+            padding: 7px 11px;
+            font-size: 12.5px;
+            border-radius: 9px;
+            flex: none
+        }
+
+        .ro-row b {
+            text-align: right;
+            overflow-wrap: anywhere
+        }
+
+        .ro-row b.ok {
+            color: #2a9d5c
+        }
+
+        .ro-row b.err {
+            color: #df3b34
+        }
+
+        .vp-state__sub {
+            overflow-wrap: anywhere
+        }
+
+        @media (max-width:940px) {
+            .stage {
+                grid-template-columns: 1fr;
+                gap: 18px
+            }
+        }
+
+        @media (max-width:430px) {
+            .bins {
+                grid-template-columns: 1fr
+            }
+
+            .status__live span {
+                display: none
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="jserr" id="jsErrors" role="alert" hidden>
+        <b>Error en la página:</b>
+        <div class="jserr__list" id="jsErrorsList"></div>
+        <button class="jserr__x" type="button" aria-label="Cerrar" onclick="this.parentNode.hidden = true">×</button>
+    </div>
+    <noscript>
+        <div class="jserr">Activa JavaScript en el navegador para usar SCIR.</div>
+    </noscript>
+
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand__mark" aria-hidden="true">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 3v6M19.8 7.5l-5.2 3M19.8 16.5l-5.2-3M12 21v-6M4.2 16.5l5.2-3M4.2 7.5l5.2 3"></path>
+                    <circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"></circle>
+                </svg>
+            </span>
+            <span class="brand__txt">
+                <span class="brand__name">SCIR <span class="brand__ver">v4</span></span>
+                <span class="brand__tag">Sistema de Clasificación Inteligente de Residuos</span>
+            </span>
+        </div>
+        <div class="status">
+            <span class="status__live"><span class="dot" id="liveDot"></span><span id="liveTxt">IA en
+                    espera</span></span>
+            <span class="status__count">Clasificados:&nbsp;<b id="count">0</b></span>
+        </div>
+    </header>
+
+    <main class="stage">
+
+        <section class="device card">
+            <div class="viewport" id="viewport">
+                <video id="video" playsinline muted></video>
+                <canvas id="overlay"></canvas>
+                <div class="vp-grid"></div>
+                <div class="vp-corner tl"></div>
+                <div class="vp-corner tr"></div>
+                <div class="vp-corner bl"></div>
+                <div class="vp-corner br"></div>
+                <div class="vp-scan"></div>
+                <div class="vp-vignette"></div>
+                <div class="vp-state" id="vpState"></div>
+                <div class="vp-ai" id="vpAi" hidden>
+                    <div class="spinner" id="vpAiSpin"></div>
+                    <div class="vp-ai__txt"><span id="vpAiText"></span><small id="vpAiDetail" hidden></small></div>
+                    <button class="btn btn--primary btn--sm" id="vpAiRetry" type="button" hidden>Reintentar IA</button>
+                </div>
+            </div>
+
+            <div class="readout">
+                <div class="ro-row"><span>estado</span><b id="roStatus">en espera</b></div>
+                <div class="ro-row"><span>ia</span><b id="roAI" class="live">cargando…</b></div>
+                <div class="ro-row"><span>objeto detectado</span><b id="roObject">—</b></div>
+                <div class="ro-row"><span>modelo</span><b>COCO-SSD · TensorFlow.js</b></div>
+            </div>
+
+            <div class="controls" id="controls" hidden>
+                <button class="btn btn--ghost" id="stopBtn" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                    </svg>
+                    Detener
+                </button>
+                <button class="btn btn--ghost" id="flipBtn" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <path d="M3 7h13l-2-2M21 17H8l2 2"></path>
+                        <circle cx="11" cy="12" r="2.2"></circle>
+                    </svg>
+                    Cambiar cámara
+                </button>
+            </div>
+
+            <div class="reco">
+                <p class="reco__label">Objetos que el sistema reconoce (ejemplos)</p>
+                <div class="reco__grid" id="recoGrid"></div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="result card">
+                <span class="result__eyebrow">Resultado</span>
+                <div class="result__binline">
+                    <span class="result__dot" id="rDot"></span>
+                    <span class="result__bin" id="rBin">Cámara apagada</span>
+                </div>
+                <p class="result__reason" id="rReason">Enciende la cámara y muestra un objeto para ver en qué caneca
+                    debe depositarse.</p>
+                <div class="result__conf" id="rConf" hidden>
+                    <div class="result__confhead"><span>Confianza del modelo</span><b id="rConfVal">0%</b></div>
+                    <div class="result__bar"><span id="rBar"></span></div>
+                </div>
+            </div>
+
+            <div class="bins" id="bins"></div>
+        </section>
+
+    </main>
+
+    <footer class="foot">
+        <b>Detección real con cámara.</b> Esta versión usa <b>COCO-SSD</b>, un modelo de IA pre-entrenado que corre en
+        el navegador con TensorFlow.js y reconoce objetos cotidianos en tiempo real, indicando su caneca. El sistema
+        final del proyecto usará un modelo <b>MobileNetV2</b> entrenado específicamente para residuos (OpenCV +
+        TensorFlow), capaz de distinguir tipos y estado de los desechos. Requiere permiso de cámara y conexión a
+        internet para cargar el modelo la primera vez.
+        <br>SCIR v4 · 19 nov 2026
+    </footer>
+
+    <script>
+        /* =====================================================================
+           SCIR v4 · Clasificación inteligente de residuos
+           - La cámara se enciende primero y la IA se carga en paralelo.
+           - Librerías y modelo tienen fuentes de respaldo: si una falla, se usa otra.
+           ===================================================================== */
+        const ACCENT = '#13a3df';
+
+        // Librerías de IA con versión fija. "integrity" (SRI) hace que el navegador
+        // rechace el archivo si alguien lo modificó en el CDN.
+        const LIBS = [
+            {
+                name: 'TensorFlow.js',
+                ok: () => typeof window.tf === 'object' && typeof window.tf.loadGraphModel === 'function',
+                integrity: 'sha384-ODzrY1mCTIRZRerZfDIqCoTQafA1St1OwLVc9SsTefnkCF1MeIaVSZ88wuK/NKfH',
+                urls: [
+                    'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.es2017.min.js',
+                    'https://unpkg.com/@tensorflow/tfjs@4.22.0/dist/tf.es2017.min.js'
+                ]
+            },
+            {
+                name: 'COCO-SSD',
+                ok: () => typeof window.cocoSsd === 'object' && typeof window.cocoSsd.load === 'function',
+                integrity: 'sha384-7qLdgfEQyO9ZQi9ArRHigK+IBto4XPk468jAqc+fnsXaZIcMAhQeLwzggRK7aESl',
+                urls: [
+                    'https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js',
+                    'https://unpkg.com/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js'
+                ]
+            }
+        ];
+
+        // Archivos del modelo COCO-SSD (unos 18 MB). Primero la copia oficial de Google; si falla,
+        // copias del mismo modelo publicadas en npm (paquete node-red-contrib-tfjs-coco-ssd).
+        const MODEL_SOURCES = [
+            { name: 'Google', url: 'https://storage.googleapis.com/tfjs-models/savedmodel/ssdlite_mobilenet_v2/model.json' },
+            { name: 'jsDelivr', url: 'https://cdn.jsdelivr.net/npm/node-red-contrib-tfjs-coco-ssd@1.0.6/models/coco-ssd/model.json' },
+            { name: 'unpkg', url: 'https://unpkg.com/node-red-contrib-tfjs-coco-ssd@1.0.6/models/coco-ssd/model.json' }
+        ];
+
+        const BINS = {
+            BLANCO: { label: 'Blanca', color: '#ffffff', rule: 'Papel, cartón, plástico, vidrio y metales limpios.' },
+            NEGRO: { label: 'Negra', color: '#2a2d33', rule: 'Servilletas, empaques contaminados y residuos no aprovechables.' },
+            VERDE: { label: 'Verde', color: '#2a9d5c', rule: 'Restos de comida y desechos biodegradables.' },
+            ROJO: { label: 'Roja', color: '#df3b34', rule: 'Pilas, baterías, químicos, electrónicos y cortopunzantes.' }
+        };
+        const REASON = {
+            BLANCO: 'Material limpio y aprovechable.',
+            NEGRO: 'Residuo no aprovechable o contaminado.',
+            VERDE: 'Residuo orgánico y biodegradable.',
+            ROJO: 'Residuo peligroso: requiere manejo especial.'
+        };
+
+
+        const MAP = {
+            'bottle': { es: 'Botella', bin: 'BLANCO' },
+            'wine glass': { es: 'Copa de vidrio', bin: 'BLANCO' },
+            'cup': { es: 'Vaso', bin: 'BLANCO' },
+            'bowl': { es: 'Recipiente', bin: 'BLANCO' },
+            'fork': { es: 'Tenedor', bin: 'BLANCO' },
+            'spoon': { es: 'Cuchara', bin: 'BLANCO' },
+            'book': { es: 'Libro / papel', bin: 'BLANCO' },
+            'vase': { es: 'Florero', bin: 'BLANCO' },
+            'knife': { es: 'Cuchillo', bin: 'ROJO' },
+            'scissors': { es: 'Tijeras', bin: 'ROJO' },
+            'cell phone': { es: 'Celular', bin: 'ROJO' },
+            'laptop': { es: 'Portátil', bin: 'ROJO' },
+            'mouse': { es: 'Mouse', bin: 'ROJO' },
+            'keyboard': { es: 'Teclado', bin: 'ROJO' },
+            'remote': { es: 'Control remoto', bin: 'ROJO' },
+            'tv': { es: 'Televisor', bin: 'ROJO' },
+            'clock': { es: 'Reloj', bin: 'ROJO' },
+            'banana': { es: 'Banano', bin: 'VERDE' },
+            'apple': { es: 'Manzana', bin: 'VERDE' },
+            'orange': { es: 'Naranja', bin: 'VERDE' },
+            'sandwich': { es: 'Sándwich', bin: 'VERDE' },
+            'pizza': { es: 'Pizza', bin: 'VERDE' },
+            'donut': { es: 'Dona', bin: 'VERDE' },
+            'cake': { es: 'Pastel', bin: 'VERDE' },
+            'hot dog': { es: 'Comida', bin: 'VERDE' },
+            'broccoli': { es: 'Brócoli', bin: 'VERDE' },
+            'carrot': { es: 'Zanahoria', bin: 'VERDE' },
+            'toothbrush': { es: 'Cepillo de dientes', bin: 'NEGRO' }
+        };
+
+        const RECO = [
+            { es: 'Botella', bin: 'BLANCO' }, { es: 'Libro', bin: 'BLANCO' },
+            { es: 'Banano', bin: 'VERDE' }, { es: 'Manzana', bin: 'VERDE' },
+            { es: 'Celular', bin: 'ROJO' }, { es: 'Tijeras', bin: 'ROJO' },
+            { es: 'Vaso', bin: 'BLANCO' }, { es: 'Cepillo de dientes', bin: 'NEGRO' }
+        ];
+
+        const $ = id => document.getElementById(id);
+        const viewport = $('viewport'), video = $('video'), overlay = $('overlay'), ctx = overlay.getContext('2d');
+        const vpState = $('vpState'), controls = $('controls'), stopBtn = $('stopBtn'), flipBtn = $('flipBtn');
+        const vpAi = $('vpAi'), vpAiSpin = $('vpAiSpin'), vpAiText = $('vpAiText'), vpAiDetail = $('vpAiDetail'), vpAiRetry = $('vpAiRetry');
+        const roStatus = $('roStatus'), roAI = $('roAI'), roObject = $('roObject');
+        const rDot = $('rDot'), rBin = $('rBin'), rReason = $('rReason');
+        const rConf = $('rConf'), rConfVal = $('rConfVal'), rBar = $('rBar');
+        const countEl = $('count'), liveDot = $('liveDot'), liveTxt = $('liveTxt');
+
+        // ¿La página está dentro de otra ventana (vista previa del chat o de VS Code)? Ahí la cámara no funciona.
+        const EMBEDDED = (() => { try { return window.top !== window.self; } catch (e) { return true; } })();
+
+        let model = null, stream = null, running = false, starting = false, loopId = 0, detectErrors = 0;
+        let facing = 'environment';
+        let count = 0, lastClass = null, lastSeen = 0;
+        const ai = { state: 'idle', text: '', detail: '', promise: null };
+
+        const binsEl = $('bins');
+        Object.entries(BINS).forEach(([key, b]) => {
+            const el = document.createElement('article');
+            el.className = 'bin'; el.dataset.bin = key;
+            el.innerHTML = `<div class="bin__swatch"></div><div><h3 class="bin__name">Caneca ${b.label.toLowerCase()}</h3><p class="bin__rule">${b.rule}</p></div>`;
+            binsEl.appendChild(el);
+        });
+        const recoGrid = $('recoGrid');
+        RECO.forEach(r => {
+            const el = document.createElement('span');
+            el.className = 'reco__item';
+            el.innerHTML = `<span class="reco__sw" style="background:${BINS[r.bin].color};${r.bin === 'BLANCO' ? 'box-shadow:inset 0 0 0 1px #cbd3dc' : ''}"></span><b>${r.es}</b>`;
+            recoGrid.appendChild(el);
+        });
+
+        function hexA(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; }
+        function setDot(bin) {
+            const c = BINS[bin].color; rDot.style.background = c;
+            rDot.style.boxShadow = bin === 'BLANCO' ? 'inset 0 0 0 1px #cbd3dc' : '0 0 0 4px ' + hexA(c, .18);
+        }
+        function setLive(on, txt) { liveDot.classList.toggle('on', on); liveTxt.textContent = txt; }
+
+        const ICON_CAM = '<svg class="vp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>';
+        const ICON_WARN = '<svg class="vp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><path d="M12 9v4M12 17h.01"></path></svg>';
+
+        // ---------- Mensajes ----------
+        function errDetail(e) {
+            if (!e) return '';
+            const msg = e.message || String(e);
+            return (e.name && e.name !== 'Error' && !msg.startsWith(e.name) ? e.name + ': ' : '') + msg;
+        }
+        function isNetworkError(e) {
+            return /Failed to fetch|NetworkError|Load failed|status code|network|sin respuesta|HTTP \d/i.test(errDetail(e));
+        }
+        function camMessage(e) {
+            const n = e && e.name;
+            if (n === 'NotAllowedError' || n === 'SecurityError') {
+                return EMBEDDED
+                    ? 'La cámara no está disponible porque la página está dentro de otra ventana (vista previa del chat o de VS Code). Ábrela en Edge o Chrome.'
+                    : 'Permiso de cámara denegado. Permítelo con el candado de la barra de direcciones y pulsa Reintentar.';
+            }
+            if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'No se encontró ninguna cámara en este dispositivo.';
+            if (n === 'NotReadableError' || n === 'AbortError') return 'No se pudo abrir la cámara: puede estar en uso por otra aplicación (Teams, Zoom, etc.).';
+            return 'No se pudo acceder a la cámara. Concede el permiso y verifica que no esté en uso por otra aplicación.';
+        }
+        function aiHint(detail) {
+            if (EMBEDDED) return 'Esta ventana de vista previa bloquea la descarga. Abre la página en Edge o Chrome.';
+            if (/webgl|shader|backend/i.test(detail)) return 'El navegador no pudo usar la tarjeta gráfica.';
+            return 'Revisa tu conexión a internet, o si un antivirus o la red bloquean jsdelivr.net o googleapis.com.';
+        }
+
+        // ---------- Estados de la cámara ----------
+        function showIdle() {
+            viewport.classList.remove('is-running');
+            const noCam = !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+            vpState.innerHTML =
+                ICON_CAM +
+                '<button class="btn btn--primary" id="startBtn" type="button">' +
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2"></rect></svg>' +
+                'Encender cámara</button>' +
+                '<p class="vp-state__msg">Muestra un objeto a la cámara y el sistema te dirá en qué caneca va.</p>' +
+                (EMBEDDED
+                    ? '<p class="vp-state__sub">Estás viendo la página dentro de otra ventana (por ejemplo, la vista previa del chat o de VS Code). Ahí la cámara no funciona: ábrela en Edge o Chrome.</p>'
+                    : noCam
+                        ? '<p class="vp-state__sub">Este navegador no permite la cámara en esta dirección. Ábrela con Live Server, con doble clic en el archivo o desde https.</p>'
+                        : '');
+            $('startBtn').addEventListener('click', start);
+            setLive(false, 'en espera');
+            roStatus.textContent = 'en espera'; roStatus.className = '';
+            renderAIBadge();
+        }
+        function showLoading(msg) {
+            viewport.classList.remove('is-running');
+            vpState.innerHTML = '<div class="spinner"></div><p class="vp-state__msg"></p>';
+            vpState.querySelector('.vp-state__msg').textContent = msg;
+            roStatus.textContent = 'iniciando…'; roStatus.className = 'live';
+            setLive(false, 'iniciando…');
+        }
+        function showError(msg, detail) {
+            running = false; loopId++;
+            if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+            video.srcObject = null;
+            viewport.classList.remove('is-running');
+            vpState.innerHTML = ICON_WARN + '<p class="vp-state__msg"></p><button class="btn btn--primary" id="retryBtn" type="button">Reintentar</button>';
+            const msgEl = vpState.querySelector('.vp-state__msg');
+            msgEl.textContent = msg;
+            if (detail) {
+                const d = document.createElement('p');
+                d.className = 'vp-state__sub';
+                d.textContent = detail;
+                msgEl.after(d);
+            }
+            $('retryBtn').addEventListener('click', start);
+            roStatus.textContent = 'error'; roStatus.className = '';
+            setLive(false, 'sin señal');
+            controls.hidden = true;
+            renderAIBadge();
+        }
+
+        // ---------- Estado de la IA ----------
+        function setAI(state, text, detail) {
+            ai.state = state; ai.text = text; ai.detail = detail || '';
+            roAI.textContent = text;
+            roAI.title = ai.detail;
+            roAI.className = state === 'ready' ? 'ok' : state === 'error' ? 'err' : 'live';
+            if (running) {
+                setLive(true, state === 'ready' ? 'IA activa' : 'cámara activa');
+                if (state === 'ready') { roStatus.textContent = 'buscando…'; roStatus.className = 'live'; }
+                else { roStatus.textContent = state === 'error' ? 'sin IA' : 'esperando IA…'; roStatus.className = state === 'error' ? '' : 'live'; }
+            }
+            renderAIBadge();
+        }
+        // Aviso sobre el video mientras la IA no está lista.
+        function renderAIBadge() {
+            const show = running && ai.state !== 'ready';
+            vpAi.hidden = !show;
+            if (!show) return;
+            const err = ai.state === 'error';
+            vpAi.classList.toggle('is-error', err);
+            vpAiSpin.hidden = err;
+            vpAiRetry.hidden = !err;
+            vpAiText.textContent = err ? 'La IA no pudo cargar. ' + aiHint(ai.detail) : 'Cargando IA: ' + ai.text;
+            vpAiDetail.hidden = !err || !ai.detail;
+            vpAiDetail.textContent = ai.detail.length > 240 ? ai.detail.slice(0, 240) + '…' : ai.detail;
+        }
+
+        // ---------- Carga de la IA ----------
+        function loadScript(url, integrity) {
+            return new Promise((resolve, reject) => {
+                const el = document.createElement('script');
+                el.src = url;
+                el.crossOrigin = 'anonymous';
+                if (integrity) el.integrity = integrity;
+                el.onload = () => resolve();
+                el.onerror = () => { el.remove(); reject(new Error('no se pudo cargar ' + url)); };
+                document.head.appendChild(el);
+            });
+        }
+        async function ensureLibs() {
+            for (const lib of LIBS) {
+                if (lib.ok()) continue;
+                const errors = [];
+                for (const url of lib.urls) {
+                    try {
+                        await loadScript(url, lib.integrity);
+                        if (lib.ok()) break;
+                        errors.push(url + ' (se descargó pero no funcionó)');
+                    } catch (e) {
+                        errors.push(e.message);
+                    }
+                }
+                if (!lib.ok()) throw new Error(lib.name + ': ' + errors.join(' · '));
+            }
+        }
+
+        // Cuenta las partes del modelo ya descargadas, para mostrar el progreso.
+        let parts = { base: '', done: new Set(), total: 0 };
+        try {
+            new PerformanceObserver(list => {
+                for (const entry of list.getEntries()) {
+                    const m = /group1-shard\d+of(\d+)/.exec(entry.name);
+                    if (m && parts.base && entry.name.startsWith(parts.base)) {
+                        parts.done.add(entry.name);
+                        parts.total = Number(m[1]);
+                    }
+                }
+            }).observe({ type: 'resource' });
+        } catch (e) { /* sin PerformanceObserver: solo se muestran los segundos */ }
+
+        // Comprueba rápido que una fuente responde, para no quedarse esperando una que no funciona.
+        async function probe(url, ms) {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), ms);
+            try {
+                const res = await fetch(url, { signal: ctrl.signal });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const json = await res.json();
+                if (!json || !json.modelTopology) throw new Error('el archivo del modelo no es válido');
+            } catch (e) {
+                if (e.name === 'AbortError') throw new Error('sin respuesta en ' + Math.round(ms / 1000) + ' s');
+                throw e;
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        async function loadDetector(src) {
+            try {
+                return await cocoSsd.load({ modelUrl: src.url });
+            } catch (e) {
+                // Si falla la tarjeta gráfica (WebGL), se usa el procesador: más lento, pero funciona.
+                if (tf.getBackend() === 'webgl' && !isNetworkError(e)) {
+                    console.warn('SCIR: la tarjeta gráfica (WebGL) falló; se usa el procesador.', e);
+                    await tf.setBackend('cpu');
+                    return await cocoSsd.load({ modelUrl: src.url });
+                }
+                throw e;
+            }
+        }
+
+        // Carga librerías y modelo. Nunca lanza errores: deja el estado en ai.state.
+        function loadAI() {
+            if (ai.promise) return ai.promise;
+            ai.promise = (async () => {
+                const t0 = performance.now();
+                let step = 'cargando librerías', source = '', finished = false;
+                const paint = () => {
+                    if (finished) return;
+                    let text = step;
+                    if (source) {
+                        const total = parts.total || 5, done = Math.min(parts.done.size, total);
+                        text = done >= total ? 'preparando la IA' : 'descargando modelo (' + source + ') ' + done + '/' + total;
+                    }
+                    setAI('loading', text + ' · ' + Math.round((performance.now() - t0) / 1000) + ' s');
+                };
+                paint();
+                const tick = setInterval(paint, 1000);
+                try {
+                    await ensureLibs();
+                    step = 'iniciando TensorFlow'; paint();
+                    await tf.ready();
+                    const errors = [];
+                    for (const src of MODEL_SOURCES) {
+                        parts = { base: src.url.replace(/model\.json$/, ''), done: new Set(), total: 0 };
+                        source = ''; step = 'conectando con ' + src.name; paint();
+                        try {
+                            await probe(src.url, 20000);
+                            source = src.name; paint();
+                            const detector = await loadDetector(src);
+                            finished = true;
+                            model = detector; detectErrors = 0;
+                            setAI('ready', 'lista · ' + (tf.getBackend() === 'webgl' ? 'GPU' : 'CPU') + ' · ' + src.name);
+                            return model;
+                        } catch (e) {
+                            console.warn('SCIR: no se pudo usar la fuente ' + src.name, e);
+                            errors.push(src.name + ': ' + errDetail(e));
+                        }
+                    }
+                    throw new Error(errors.join(' | '));
+                } catch (e) {
+                    finished = true;
+                    console.error('SCIR: la IA no pudo cargar', e);
+                    setAI('error', 'no disponible', errDetail(e));
+                    return null;
+                } finally {
+                    finished = true;
+                    clearInterval(tick);
+                    if (!model) ai.promise = null;   // permite "Reintentar IA"
+                }
+            })();
+            return ai.promise;
+        }
+        vpAiRetry.addEventListener('click', () => loadAI());
+
+        // ---------- Cámara ----------
+        async function start() {
+            if (running || starting) return;
+            starting = true;
+            try {
+                if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
+                    showError('Este navegador no permite usar la cámara en esta dirección.',
+                        'Ábrela con Live Server, con doble clic en el archivo o desde https.');
+                    return;
+                }
+                showLoading('Solicitando acceso a la cámara…');
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
+                } catch (e) {
+                    console.error('SCIR: error al acceder a la cámara', e);
+                    showError(camMessage(e), errDetail(e));
+                    return;
+                }
+                video.srcObject = stream;
+                video.classList.toggle('mirror', facing === 'user');
+                try { await video.play(); } catch (e) { }
+                viewport.classList.add('is-running');
+                controls.hidden = false;
+                running = true; lastClass = null; lastSeen = 0;
+                clearResult();
+                setAI(ai.state, ai.text, ai.detail);   // actualiza textos y aviso de la IA
+                if (!model) loadAI();                  // si la IA falló antes, se reintenta
+                loop(++loopId);
+            } finally {
+                starting = false;
+            }
+        }
+
+        function stop() {
+            running = false; loopId++;
+            if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+            video.srcObject = null;
+            ctx.clearRect(0, 0, overlay.width, overlay.height);
+            controls.hidden = true;
+            rBin.textContent = 'Cámara apagada';
+            rBin.style.color = 'var(--ink)';
+            rReason.textContent = 'Enciende la cámara y muestra un objeto para clasificarlo.';
+            rConf.hidden = true; rBar.style.width = '0%';
+            rDot.style.background = '#cbd3dc'; rDot.style.boxShadow = 'none';
+            roObject.textContent = '—';
+            document.querySelectorAll('.bin').forEach(b => b.classList.remove('is-active'));
+            showIdle();
+        }
+
+        async function flip() {
+            if (!running) return;
+            facing = (facing === 'environment') ? 'user' : 'environment';
+            if (stream) { stream.getTracks().forEach(t => t.stop()); }
+            try {
+                const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
+                if (!running) { s.getTracks().forEach(t => t.stop()); return; }
+                stream = s;
+                video.srcObject = stream; video.classList.toggle('mirror', facing === 'user'); await video.play();
+            } catch (e) {
+                console.error('SCIR: error al cambiar de cámara', e);
+                showError('No se pudo cambiar de cámara en este dispositivo.', errDetail(e));
+            }
+        }
+
+        stopBtn.addEventListener('click', stop);
+        flipBtn.addEventListener('click', flip);
+
+        // Analiza un cuadro del video tras otro. Si la IA aún no está lista, solo espera.
+        async function loop(id) {
+            if (!running || id !== loopId) return;
+            if (model && video.readyState >= 2) {
+                let preds = [];
+                try {
+                    preds = await model.detect(video);
+                    detectErrors = 0;
+                } catch (e) {
+                    detectErrors++;
+                    console.warn('SCIR: error al analizar la imagen', e);
+                    if (detectErrors >= 5) {
+                        // Falló varias veces seguidas: se descarta y "Reintentar IA" la carga con el procesador.
+                        model = null; ai.promise = null;
+                        try { await tf.setBackend('cpu'); } catch (e2) { }
+                        setAI('error', 'no disponible', 'La IA falló al analizar la imagen: ' + errDetail(e));
+                    }
+                }
+                if (!running || id !== loopId) return;
+                draw(preds);
+                updateResult(preds);
+            }
+            requestAnimationFrame(() => loop(id));
+        }
+
+        function draw(preds) {
+            const r = viewport.getBoundingClientRect();
+            const cw = r.width, ch = r.height;
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            if (overlay.width !== Math.round(cw * dpr) || overlay.height !== Math.round(ch * dpr)) {
+                overlay.width = Math.round(cw * dpr); overlay.height = Math.round(ch * dpr);
+            }
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, cw, ch);
+            const vw = video.videoWidth, vh = video.videoHeight;
+            if (!vw || !vh) return;
+            const scale = Math.max(cw / vw, ch / vh);
+            const ox = (cw - vw * scale) / 2, oy = (ch - vh * scale) / 2;
+            let mirror = (facing === 'user');
+            preds.forEach(p => {
+                if (p.score < 0.5) return;
+                const m = MAP[p.class]; if (!m) return;
+                let [bx, by, bw, bh] = p.bbox;
+                let x = ox + bx * scale, y = oy + by * scale, w = bw * scale, h = bh * scale;
+                if (mirror) { x = cw - x - w; }
+                ctx.lineWidth = 2.5; ctx.strokeStyle = ACCENT;
+                ctx.shadowColor = 'rgba(19,163,223,.5)'; ctx.shadowBlur = 8;
+                roundRect(ctx, x, y, w, h, 7); ctx.stroke();
+                ctx.shadowBlur = 0;
+                const label = `${m.es} · ${BINS[m.bin].label} · ${Math.round(p.score * 100)}%`;
+                ctx.font = '600 12px "IBM Plex Mono", monospace';
+                const tw = ctx.measureText(label).width;
+                const ty = y > 20 ? y - 19 : y + 2;
+                ctx.fillStyle = ACCENT;
+                roundRect(ctx, x - 1, ty, tw + 12, 18, 4); ctx.fill();
+                ctx.fillStyle = '#04222e';
+                ctx.fillText(label, x + 5, ty + 13);
+            });
+        }
+        function roundRect(c, x, y, w, h, r) {
+            r = Math.min(r, w / 2, h / 2);
+            c.beginPath();
+            c.moveTo(x + r, y);
+            c.arcTo(x + w, y, x + w, y + h, r);
+            c.arcTo(x + w, y + h, x, y + h, r);
+            c.arcTo(x, y + h, x, y, r);
+            c.arcTo(x, y, x + w, y, r);
+            c.closePath();
+        }
+
+        function bestPrediction(preds) {
+            let best = null;
+            for (const p of preds) {
+                if (p.score < 0.5) continue;
+                const m = MAP[p.class]; if (!m) continue;
+                if (!best || p.score > best.score) best = { class: p.class, score: p.score, es: m.es, bin: m.bin };
+            }
+            return best;
+        }
+
+        function updateResult(preds) {
+            const best = bestPrediction(preds);
+            const now = performance.now();
+            if (best) {
+                lastSeen = now;
+                roStatus.textContent = 'clasificado'; roStatus.classList.remove('live');
+                roObject.textContent = best.es;
+                const conf = Math.round(best.score * 100);
+                if (best.class !== lastClass) {
+                    lastClass = best.class;
+                    rBin.textContent = 'Caneca ' + BINS[best.bin].label.toLowerCase();
+                    rBin.style.color = 'var(--ink)';
+                    rReason.textContent = REASON[best.bin];
+                    setDot(best.bin);
+                    document.querySelectorAll('.bin').forEach(b => b.classList.toggle('is-active', b.dataset.bin === best.bin));
+                    count++; countEl.textContent = count;
+                }
+                rConf.hidden = false;
+                rConfVal.textContent = conf + '%';
+                rBar.style.width = conf + '%';
+            } else {
+                roStatus.textContent = 'buscando…'; roStatus.classList.add('live');
+                roObject.textContent = '—';
+                if (now - lastSeen > 1200 && lastClass !== null) {
+                    lastClass = null; clearResult();
+                }
+            }
+        }
+
+        function clearResult() {
+            rBin.textContent = 'Acerca un objeto';
+            rBin.style.color = 'var(--soft)';
+            rReason.textContent = 'Muestra un residuo a la cámara para clasificarlo.';
+            rConf.hidden = true; rBar.style.width = '0%';
+            rDot.style.background = '#cbd3dc'; rDot.style.boxShadow = 'none';
+            document.querySelectorAll('.bin').forEach(b => b.classList.remove('is-active'));
+        }
+
+        showIdle();
+        loadAI();   // la IA empieza a cargar de inmediato, en segundo plano
+    </script>
+</body>
+
+</html>
