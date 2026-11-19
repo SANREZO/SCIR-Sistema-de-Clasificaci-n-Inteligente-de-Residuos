@@ -1,6 +1,6 @@
 Cómo usarlo
 
-1. Abre `SCRI.html` en Edge o Chrome: con doble clic en el archivo o, en VS Code,
+1. Abre `SCIR.html` en Edge o Chrome: con doble clic en el archivo o, en VS Code,
    con clic derecho → **Open with Live Server**.
 2. Pulsa **Encender cámara** y acepta el permiso.
 3. Muestra un objeto: el sistema dice en qué caneca va.
@@ -10,7 +10,7 @@ La cámara no funciona dentro de vistas previas (la del chat o la de VS Code): a
 
 Cómo funciona
 
-- Todo está en un solo archivo: `SCRI.html`.
+- Todo está en un solo archivo: `SCIR.html`.
 - La cámara y la IA son independientes: la cámara se enciende aunque la IA todavía esté cargando o haya fallado.
 - Las librerías (versión fija) vienen de jsDelivr, con unpkg de respaldo, y se verifican con SRI.
 - El modelo se descarga de Google; si falla, se usan copias del mismo modelo en jsDelivr o unpkg
@@ -21,7 +21,7 @@ Si algo falla
 
 - Junto a "SCIR" debe decir **v4**. Si no lo dice, estás abriendo otro archivo.
 - Los problemas de cámara o de IA se explican en la propia página; los errores de JavaScript aparecen en un aviso rojo arriba.
-- Más detalle: F12 → pestaña Consola (mensajes que empiezan por `SCRI:`).
+- Más detalle: F12 → pestaña Consola (mensajes que empiezan por `SCIR:`).
 
  Privacidad
 
